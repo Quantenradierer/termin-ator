@@ -30,7 +30,7 @@ from discord import app_commands
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from restaurant_bot.commands import add as add_cmd
-from restaurant_bot.commands import list_cmd, poll, remove
+from restaurant_bot.commands import list_cmd, poll, reactivate, remove
 from restaurant_bot.config import ConfigError, load_config
 from restaurant_bot.deps import Deps
 
@@ -62,7 +62,7 @@ class _Registrar(discord.Client):
                 # Register the same commands the bot uses. The callbacks are never
                 # invoked here, so a dependency stub is fine.
                 deps = Deps(config=self._config, db=None, scheduler=None)  # type: ignore[arg-type]
-                for module in (add_cmd, list_cmd, remove, poll):
+                for module in (add_cmd, list_cmd, remove, reactivate, poll):
                     module.setup(self.tree, deps)
                 self.tree.copy_global_to(guild=self._guild)
                 synced = await self.tree.sync(guild=self._guild)

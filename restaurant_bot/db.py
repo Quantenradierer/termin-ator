@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import aiosqlite
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS restaurants (
     weight      REAL    NOT NULL DEFAULT 1.0,
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT    NOT NULL,
-    retired_at  TEXT
+    retired_at  TEXT,
+    visit_date  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS active_poll (
@@ -82,6 +83,7 @@ class Restaurant:
     active: bool
     created_at: str
     retired_at: str | None
+    visit_date: str | None  # dinner date of the poll this restaurant won (Q9)
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,7 @@ def normalise(text: str) -> str:
 
 
 def _row_to_restaurant(row: aiosqlite.Row) -> Restaurant:
+    keys = row.keys()
     return Restaurant(
         id=row["id"],
         text=row["text"],
@@ -116,6 +119,7 @@ def _row_to_restaurant(row: aiosqlite.Row) -> Restaurant:
         active=bool(row["active"]),
         created_at=row["created_at"],
         retired_at=row["retired_at"],
+        visit_date=row["visit_date"] if "visit_date" in keys else None,
     )
 
 
@@ -138,11 +142,32 @@ class Database:
         await self._conn.executescript(_SCHEMA)
         async with self._conn.execute("SELECT version FROM schema_version") as cur:
             row = await cur.fetchone()
+
         if row is None:
             await self._conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
             )
+        else:
+            await self._migrate(int(row["version"]))
         await self._conn.commit()
+
+    async def _migrate(self, current: int) -> None:
+        if current >= SCHEMA_VERSION:
+            return
+        if current < 2:
+            async with self._conn.execute("PRAGMA table_info(restaurants)") as cur:
+                columns = {r["name"] for r in await cur.fetchall()}
+            if "visit_date" not in columns:
+                await self._conn.execute("ALTER TABLE restaurants ADD COLUMN visit_date TEXT")
+            # Backfill from the winning poll's dinner date where we can.
+            await self._conn.execute(
+                "UPDATE restaurants SET visit_date = ("
+                "  SELECT p.dinner_date FROM polls p"
+                "  WHERE p.winner_restaurant_id = restaurants.id"
+                "  ORDER BY p.closed_at DESC LIMIT 1"
+                ") WHERE active = 0 AND visit_date IS NULL"
+            )
+        await self._conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
     async def close(self) -> None:
         await self._conn.close()
@@ -186,9 +211,19 @@ class Database:
 
     async def list_retired(self) -> list[Restaurant]:
         async with self._conn.execute(
-            "SELECT * FROM restaurants WHERE active = 0 ORDER BY retired_at DESC, text ASC"
+            "SELECT * FROM restaurants WHERE active = 0 "
+            "ORDER BY visit_date DESC, retired_at DESC, text ASC"
         ) as cur:
             return [_row_to_restaurant(r) for r in await cur.fetchall()]
+
+    async def reactivate(self, restaurant_id: int) -> None:
+        """Bring a retired restaurant back into rotation with a fresh weight of 1.0."""
+        await self._conn.execute(
+            "UPDATE restaurants SET active = 1, retired_at = NULL, visit_date = NULL, "
+            "weight = 1.0 WHERE id = ?",
+            (restaurant_id,),
+        )
+        await self._conn.commit()
 
     async def count_active(self) -> int:
         async with self._conn.execute(
@@ -318,8 +353,9 @@ class Database:
 
             if deactivate_restaurant_id is not None:
                 await self._conn.execute(
-                    "UPDATE restaurants SET active = 0, retired_at = ? WHERE id = ?",
-                    (closed_at, deactivate_restaurant_id),
+                    "UPDATE restaurants SET active = 0, retired_at = ?, visit_date = ? "
+                    "WHERE id = ?",
+                    (closed_at, dinner_date, deactivate_restaurant_id),
                 )
 
             await self._conn.execute("DELETE FROM active_poll WHERE id = 1")

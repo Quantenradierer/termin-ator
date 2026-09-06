@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as _dt
-from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
@@ -14,11 +13,11 @@ from ..deps import Deps
 _DISCORD_MSG_LIMIT = 2000
 
 
-def _retired_label(retired_at: str | None, tz: ZoneInfo) -> str:
-    if not retired_at:
+def _visit_label(visit_date: str | None) -> str:
+    if not visit_date:
         return "?"
     try:
-        return strings_de.format_date_de(_dt.datetime.fromisoformat(retired_at), tz=tz)
+        return strings_de.format_date_de(_dt.date.fromisoformat(visit_date))
     except ValueError:
         return "?"
 
@@ -59,8 +58,7 @@ def setup(tree: app_commands.CommandTree, deps: Deps) -> None:
         blocks = _chunk(lines)
         if retired:
             retired_lines = [
-                strings_de.list_retired_line(r.text, _retired_label(r.retired_at, deps.config.tz))
-                for r in retired
+                strings_de.list_retired_line(r.text, _visit_label(r.visit_date)) for r in retired
             ]
             blocks.append(strings_de.list_retired_block(retired_lines))
 

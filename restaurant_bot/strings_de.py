@@ -61,11 +61,11 @@ def list_active_line(index: int, text: str, weight: float) -> str:
 
 def list_retired_block(lines: list[str]) -> str:
     body = "\n".join(lines)
-    return f"**Bereits besucht:**\n||{body}||"
+    return f"**Bereits besucht:**\n{body}"
 
 
-def list_retired_line(text: str, retired_on: str) -> str:
-    return f"• {text} ({retired_on})"
+def list_retired_line(text: str, visited_on: str) -> str:
+    return f"• {text} (besucht am {visited_on})"
 
 
 # --- /remove-restaurant ------------------------------------------------
@@ -81,6 +81,15 @@ def restaurant_on_active_poll() -> str:
     return (
         "❌ Dieses Restaurant ist gerade Teil der laufenden Umfrage und kann nicht entfernt werden."
     )
+
+
+# --- /reactivate-restaurant ------------------------------------------
+def restaurant_reactivated(text: str) -> str:
+    return f"♻️ **{text}** ist wieder in der Auswahl (Beliebtheit auf 1,00 zurückgesetzt)."
+
+
+def restaurant_not_retired() -> str:
+    return "❌ Dieses Restaurant ist nicht in der Liste der bereits besuchten."
 
 
 # --- /start-poll --------------------------------------------------------

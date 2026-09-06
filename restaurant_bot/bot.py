@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 
 from .commands import add as add_cmd
-from .commands import list_cmd, poll, remove
+from .commands import list_cmd, poll, reactivate, remove
 from .config import Config, ConfigError, load_config
 from .db import Database
 from .deps import Deps
@@ -36,7 +36,7 @@ class RestaurantBot(discord.Client):
         self.scheduler = PollScheduler(self, self.db, self.config)
 
         deps = Deps(config=self.config, db=self.db, scheduler=self.scheduler)
-        for module in (add_cmd, list_cmd, remove, poll):
+        for module in (add_cmd, list_cmd, remove, reactivate, poll):
             module.setup(self.tree, deps)
         self.tree.on_error = self._on_app_command_error
 

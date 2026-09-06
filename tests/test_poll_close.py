@@ -84,6 +84,7 @@ async def test_normal_path(db: Database, config) -> None:
     winner = await db.get_restaurant(restaurants[0].id)
     assert winner.active is False
     assert winner.retired_at is not None
+    assert winner.visit_date == "2026-09-26"  # the poll's dinner date, not the close time
 
     # weights recalculated for every option
     charlie = await db.get_restaurant(restaurants[2].id)

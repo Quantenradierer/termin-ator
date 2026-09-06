@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 
+import aiosqlite
 import pytest
 
 from restaurant_bot.db import (
@@ -21,6 +22,37 @@ async def test_init_idempotent(tmp_path) -> None:
     await db1.close()
     db2 = await Database.connect(path)  # connect() calls init() again
     await db2.close()
+
+
+async def test_migration_adds_visit_date(tmp_path) -> None:
+    path = str(tmp_path / "old.db")
+    # Simulate a v1 database: restaurants table without visit_date, a retired winner,
+    # and a matching poll row.
+    raw = await aiosqlite.connect(path)
+    await raw.executescript(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL);"
+        "INSERT INTO schema_version (version) VALUES (1);"
+        "CREATE TABLE restaurants ("
+        " id INTEGER PRIMARY KEY, text TEXT, text_norm TEXT UNIQUE, weight REAL,"
+        " active INTEGER, created_at TEXT, retired_at TEXT);"
+        "INSERT INTO restaurants VALUES (1, 'Old Winner', 'old winner', 1.4, 0,"
+        " '2026-01-01T00:00:00+00:00', '2026-09-13T00:00:00+00:00');"
+        "CREATE TABLE polls (id INTEGER PRIMARY KEY, message_id INTEGER, channel_id INTEGER,"
+        " dinner_date TEXT, created_at TEXT, closed_at TEXT, status TEXT,"
+        " winner_restaurant_id INTEGER, tie_broken INTEGER, tie_break_kind TEXT);"
+        "INSERT INTO polls VALUES (1, 1, 1, '2026-09-12', '2026-09-05T00:00:00+00:00',"
+        " '2026-09-13T00:00:00+00:00', 'completed', 1, 0, NULL);"
+    )
+    await raw.commit()
+    await raw.close()
+
+    db = await Database.connect(path)
+    try:
+        retired = await db.list_retired()
+        assert len(retired) == 1
+        assert retired[0].visit_date == "2026-09-12"  # backfilled from the poll
+    finally:
+        await db.close()
 
 
 async def test_add_and_duplicate(db: Database) -> None:
@@ -132,6 +164,37 @@ async def test_hard_delete_keeps_archive(db: Database) -> None:
         row = await cur.fetchone()
     assert row["restaurant_text"] == "Typo Diner"
     assert row["restaurant_id"] is None  # FK set null, archive text preserved
+
+
+async def test_retire_sets_visit_date_and_reactivate_clears_it(db: Database) -> None:
+    r = await db.add_restaurant("Return Later", now=NOW)
+    await db.archive_poll(
+        message_id=1,
+        channel_id=1,
+        dinner_date="2026-10-03",
+        created_at=NOW.isoformat(),
+        closed_at=NOW.isoformat(),
+        status="completed",
+        winner_restaurant_id=r.id,
+        tie_broken=False,
+        tie_break_kind=None,
+        options=[ArchiveOption(r.id, r.text, 3, 1.0, 1.3)],
+        new_weights={r.id: 1.3},
+        deactivate_restaurant_id=r.id,
+    )
+    retired = await db.get_restaurant(r.id)
+    assert retired.active is False
+    assert retired.visit_date == "2026-10-03"
+    assert (await db.list_retired())[0].id == r.id
+
+    await db.reactivate(r.id)
+    back = await db.get_restaurant(r.id)
+    assert back.active is True
+    assert back.retired_at is None
+    assert back.visit_date is None
+    assert back.weight == 1.0
+    assert await db.list_retired() == []
+    assert [x.id for x in await db.list_active()] == [r.id]
 
 
 async def _retire(db: Database, restaurant_id: int) -> None:

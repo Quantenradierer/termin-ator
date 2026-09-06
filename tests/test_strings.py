@@ -20,10 +20,16 @@ def test_format_weight() -> None:
     assert strings_de.format_weight(0.049) == "0.05"
 
 
-def test_retired_block_is_spoiler() -> None:
-    block = strings_de.list_retired_block(["• X (Sa, 12.09.2026)"])
+def test_retired_block_has_no_spoiler() -> None:
+    block = strings_de.list_retired_block(["• X (besucht am Sa, 12.09.2026)"])
     assert block.startswith("**Bereits besucht:**")
-    assert "||" in block
+    assert "||" not in block
+
+
+def test_retired_line_mentions_visit() -> None:
+    line = strings_de.list_retired_line("Pizza Palace", "Sa, 12.09.2026")
+    assert "Pizza Palace" in line
+    assert "besucht am Sa, 12.09.2026" in line
 
 
 @pytest.mark.parametrize(

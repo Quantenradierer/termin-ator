@@ -29,7 +29,8 @@ posts the announcement, archives everything.
   — applies to **all** options including the winner; restaurants not on the poll untouched.
 - In **one transaction** (`archive_poll`, T04):
   - update `restaurants.weight` for every option
-  - set winner `active = 0`, `retired_at = now UTC` (Q18 — permanent, no reactivation)
+  - set winner `active = 0`, `retired_at = now UTC`, `visit_date = <poll dinner_date>`
+    (reversible later via `/reactivate-restaurant`, see T18)
   - insert `polls` row (`status = 'completed'`, `winner_restaurant_id`, `tie_broken`,
     `tie_break_kind = tie_kind`)
   - insert `poll_options` rows (`vote_count`, `weight_before`, `weight_after`,

@@ -13,9 +13,10 @@ All bot replies are in **German**; the command names are English.
 | Command | Who | What it does |
 |---|---|---|
 | `/add-restaurant text:<name or URL>` | everyone | Adds one free-text entry (name, URL, Maps link — anything). Max **55 characters** (Discord poll limit). A case-insensitive duplicate is ignored. |
-| `/list-restaurants` | everyone | Active restaurants sorted by popularity (weight shown), plus a collapsed "Bereits besucht" section of retired winners. |
+| `/list-restaurants` | everyone | Active restaurants sorted by popularity (weight shown), plus a "Bereits besucht" section listing each retired winner with the **dinner date** it won. |
 | `/start-poll date:<date> [duration_hours:<1–168>]` | everyone | Starts a poll. `date` is the **dinner date** (informational). Accepts `12.09.2026`, `12.09.` / `12.09` (year → next occurrence), or `2026-09-12`. Duration defaults to **168 h (7 days)**. Approval voting (pick as many as you like). Posts a companion message with the raw (clickable) entries. If a poll is already running it is discarded and replaced. |
 | `/remove-restaurant restaurant:<name>` | everyone | Hard-deletes an active entry (autocomplete). Blocked while that entry is on the running poll. |
+| `/reactivate-restaurant restaurant:<name>` | everyone | Brings a retired restaurant back into rotation (autocomplete over retired). Its weight is reset to `1.0`. |
 
 ### How selection & popularity work
 
@@ -27,7 +28,8 @@ All bot replies are in **German**; the command names are English.
   `0.05` (env `WEIGHT_FLOOR`). `n` is the number of options; `vote_share` is that
   restaurant's fraction of all approvals. Restaurants not on the poll are unchanged.
 - **Winner** = most approvals. Tie → highest current weight wins; still tied → random.
-  The winner is **retired permanently** (re-add it as a new entry if you ever want it back).
+  The winner is **retired** (dropped from future polls); bring it back later with
+  `/reactivate-restaurant`, which resets its weight to `1.0`.
 - **Zero votes** → no winner, no retirement, no weight changes.
 
 ## Discord application setup
@@ -92,7 +94,7 @@ restaurant_bot/
   bot.py           discord.py client, command registration, error handler
   lifecycle.py     scheduled poll close + startup reconciliation
   strings_de.py    all user-facing German text
-  commands/        add · list_cmd · remove · poll
+  commands/        add · list_cmd · remove · reactivate · poll
   core/            dates · sampling · popularity · poll_close
 tickets/           the design tickets this implementation follows
 tests/
