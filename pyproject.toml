@@ -1,0 +1,24 @@
+[project]
+name = "restaurant-bot"
+version = "0.1.0"
+description = "Discord bot that helps a group of friends pick a restaurant by weighted poll."
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# German user-facing copy legitimately uses "ambiguous" unicode (ℹ️, en dashes, ...).
+"restaurant_bot/strings_de.py" = ["RUF001", "RUF002", "RUF003"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+]

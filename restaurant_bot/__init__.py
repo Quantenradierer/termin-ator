@@ -1,0 +1,1 @@
+"""Restaurant selector Discord bot."""
