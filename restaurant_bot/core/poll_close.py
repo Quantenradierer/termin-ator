@@ -66,19 +66,22 @@ async def _safe_send(channel: object, content: str) -> None:
         log.exception("failed to send poll-close message")
 
 
-async def _winning_voter_ids(poll: object, winner_answer_id: int | None) -> list[int]:
-    """Best-effort list of Discord user ids that voted for the winning answer."""
-    if poll is None or winner_answer_id is None:
-        return []
-    answer = next((a for a in poll.answers if a.id == winner_answer_id), None)  # type: ignore[attr-defined]
-    if answer is None or not hasattr(answer, "voters"):
+async def _all_voter_ids(poll: object) -> list[int]:
+    """Best-effort de-duplicated list of Discord user ids that voted on any answer."""
+    if poll is None:
         return []
     ids: list[int] = []
-    try:
-        async for user in answer.voters():
-            ids.append(user.id)
-    except Exception:
-        log.exception("failed to fetch voters for the winning answer")
+    seen: set[int] = set()
+    for answer in poll.answers:  # type: ignore[attr-defined]
+        if not hasattr(answer, "voters"):
+            continue
+        try:
+            async for user in answer.voters():
+                if user.id not in seen:
+                    seen.add(user.id)
+                    ids.append(user.id)
+        except Exception:
+            log.exception("failed to fetch voters for answer %s", getattr(answer, "id", "?"))
     return ids
 
 
@@ -179,8 +182,7 @@ async def close_poll(
 
     reminder: PendingReminder | None = None
     if winner_id is not None:
-        winner_answer_id = next((aid for aid, rid in mapping.items() if rid == winner_id), None)
-        voter_ids = await _winning_voter_ids(poll, winner_answer_id)
+        voter_ids = await _all_voter_ids(poll)
         reminder = PendingReminder(
             channel_id=active.channel_id,
             restaurant_text=texts[winner_id],

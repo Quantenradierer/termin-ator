@@ -4,14 +4,14 @@
 **Traces to:** user request (post-design)
 
 ## Context
-On the dinner date, at ~09:00 local time, ping everyone who voted for the winning
-restaurant as a reminder.
+On the dinner date, at ~09:00 local time, ping everyone who voted in the poll (any option)
+as a reminder.
 
 ## Requirements
 - Config: `REMINDER_HOUR` env (0–23, default `9`), validated in `config.py`.
-- At poll close (T14, completed path only): capture the Discord user ids that voted for the
-  **winning answer** (`PollAnswer.voters()`), and create a `reminders` row **inside the
-  `archive_poll` transaction**:
+- At poll close (T14, completed path only): capture the Discord user ids that voted on
+  **any answer** (`PollAnswer.voters()` across all answers, de-duplicated), and create a
+  `reminders` row **inside the `archive_poll` transaction**:
   - `channel_id` = the poll's channel
   - `restaurant_text` = winner's string (snapshot)
   - `visit_date` = the poll's `dinner_date`
@@ -34,7 +34,7 @@ restaurant as a reminder.
 
 ## Acceptance criteria
 - Closing a poll with a winner writes one pending reminder with the right `remind_at`
-  (e.g. 09:00 Europe/Berlin → 07:00Z in summer) and the winning voters' ids.
+  (e.g. 09:00 Europe/Berlin → 07:00Z in summer) and every voter's id, de-duplicated.
 - A due reminder posts one channel message containing every voter mention and the winner
   name, then is marked `sent`; a second reconcile does not repost.
 - A future reminder is scheduled, not sent.

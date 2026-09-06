@@ -31,8 +31,8 @@ All bot replies are in **German**; the command names are English.
   The winner is **retired** (dropped from future polls); bring it back later with
   `/reactivate-restaurant`, which resets its weight to `1.0`.
 - On the **visit date** at `REMINDER_HOUR` local time, the bot posts a reminder in the
-  poll's channel that @-mentions everyone who voted for the winner. Survives restarts; if
-  the bot was down for more than 12 h past the due time the reminder is skipped.
+  poll's channel that @-mentions everyone who voted in the poll (any option). Survives
+  restarts; if the bot was down for more than 12 h past the due time the reminder is skipped.
 - **Zero votes** → no winner, no retirement, no weight changes.
 
 ## Discord application setup

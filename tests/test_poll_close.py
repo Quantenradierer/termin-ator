@@ -114,9 +114,10 @@ async def test_normal_path(db: Database, config) -> None:
         assert (await cur.fetchone())["status"] == "completed"
 
 
-async def test_creates_visit_reminder_for_winning_voters(db: Database, config) -> None:
-    # Alpha wins with voters 111 & 222.
-    _, _channel, client = await _seed(db, [3, 1, 0], voters=[[111, 222], [999], []])
+async def test_creates_visit_reminder_for_all_voters(db: Database, config) -> None:
+    # Alpha wins, but the reminder pings everyone who voted on any answer;
+    # 222 voted for two answers and must appear once.
+    _, _channel, client = await _seed(db, [3, 1, 0], voters=[[111, 222], [222, 999], []])
     await close_poll(client, db, config, now=NOW, rng=random.Random(0))
 
     pending = await db.pending_reminders()
@@ -124,7 +125,8 @@ async def test_creates_visit_reminder_for_winning_voters(db: Database, config) -
     reminder = pending[0]
     assert reminder.restaurant_text == "Alpha"
     assert reminder.visit_date == "2026-09-26"
-    assert sorted(reminder.voter_ids) == [111, 222]
+    assert sorted(reminder.voter_ids) == [111, 222, 999]
+    assert len(reminder.voter_ids) == len(set(reminder.voter_ids))  # de-duplicated
     # 09:00 Europe/Berlin on 2026-09-26 is 07:00 UTC (CEST, UTC+2).
     assert reminder.remind_at == "2026-09-26T07:00:00+00:00"
     assert reminder.sent is False
