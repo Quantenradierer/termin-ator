@@ -36,6 +36,7 @@ class Config:
     sqlite_path: str
     ema_lambda: float
     weight_floor: float
+    reminder_hour: int  # local hour on the visit date to ping the winning voters
 
 
 def _get_float(name: str, default: float) -> float:
@@ -78,6 +79,16 @@ def load_config(*, load_dotenv_file: bool = True) -> Config:
     if weight_floor <= 0.0:
         raise ConfigError(f"WEIGHT_FLOOR must be > 0, got {weight_floor}")
 
+    reminder_hour_raw = os.environ.get("REMINDER_HOUR", "").strip() or "9"
+    try:
+        reminder_hour = int(reminder_hour_raw)
+    except ValueError as exc:
+        raise ConfigError(
+            f"REMINDER_HOUR must be an integer 0-23, got {reminder_hour_raw!r}"
+        ) from exc
+    if not (0 <= reminder_hour <= 23):
+        raise ConfigError(f"REMINDER_HOUR must be 0-23, got {reminder_hour}")
+
     return Config(
         discord_token=token,
         tz=tz,
@@ -85,4 +96,5 @@ def load_config(*, load_dotenv_file: bool = True) -> Config:
         sqlite_path=sqlite_path,
         ema_lambda=ema_lambda,
         weight_floor=weight_floor,
+        reminder_hour=reminder_hour,
     )

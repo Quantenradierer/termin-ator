@@ -19,6 +19,7 @@ def config() -> Config:
         sqlite_path=":memory:",
         ema_lambda=0.3,
         weight_floor=0.05,
+        reminder_hour=9,
     )
 
 

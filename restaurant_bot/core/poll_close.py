@@ -18,7 +18,7 @@ import random
 
 from .. import strings_de
 from ..config import Config
-from ..db import ArchiveOption, Database
+from ..db import ArchiveOption, Database, PendingReminder
 from .popularity import OptionResult, pick_winner, recalculate
 
 log = logging.getLogger(__name__)
@@ -66,6 +66,28 @@ async def _safe_send(channel: object, content: str) -> None:
         log.exception("failed to send poll-close message")
 
 
+async def _winning_voter_ids(poll: object, winner_answer_id: int | None) -> list[int]:
+    """Best-effort list of Discord user ids that voted for the winning answer."""
+    if poll is None or winner_answer_id is None:
+        return []
+    answer = next((a for a in poll.answers if a.id == winner_answer_id), None)  # type: ignore[attr-defined]
+    if answer is None or not hasattr(answer, "voters"):
+        return []
+    ids: list[int] = []
+    try:
+        async for user in answer.voters():
+            ids.append(user.id)
+    except Exception:
+        log.exception("failed to fetch voters for the winning answer")
+    return ids
+
+
+def _remind_at(dinner_date: str, config: Config) -> str:
+    visit = _dt.date.fromisoformat(dinner_date)
+    local = _dt.datetime(visit.year, visit.month, visit.day, config.reminder_hour, tzinfo=config.tz)
+    return local.astimezone(_dt.UTC).isoformat()
+
+
 async def close_poll(
     client: object,
     db: Database,
@@ -85,6 +107,7 @@ async def close_poll(
 
     channel = await _resolve_channel(client, active.channel_id)
     answer_votes: dict[int, int] = {}
+    poll: object | None = None
     if channel is not None:
         try:
             message = await _finalised_message(channel, active.message_id)
@@ -154,6 +177,19 @@ async def close_poll(
         for o in options
     ]
 
+    reminder: PendingReminder | None = None
+    if winner_id is not None:
+        winner_answer_id = next((aid for aid, rid in mapping.items() if rid == winner_id), None)
+        voter_ids = await _winning_voter_ids(poll, winner_answer_id)
+        reminder = PendingReminder(
+            channel_id=active.channel_id,
+            restaurant_text=texts[winner_id],
+            visit_date=active.dinner_date,
+            remind_at=_remind_at(active.dinner_date, config),
+            voter_ids=voter_ids,
+            created_at=closed_at,
+        )
+
     poll_id = await db.archive_poll(
         message_id=active.message_id,
         channel_id=active.channel_id,
@@ -167,6 +203,7 @@ async def close_poll(
         options=archive_options,
         new_weights=new_weights,
         deactivate_restaurant_id=winner_id,
+        reminder=reminder,
     )
 
     if channel is not None and winner_id is not None:

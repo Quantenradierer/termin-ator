@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import datetime as _dt
+import json
 
 from restaurant_bot.db import ActivePoll, Database
 from restaurant_bot.lifecycle import PollScheduler
 from tests.test_poll_close import FakeAnswer, FakeChannel, FakeClient, FakeMessage, FakePoll
 
 NOW = _dt.datetime(2026, 9, 20, 12, 0, tzinfo=_dt.UTC)
+
+
+async def _insert_reminder(
+    db: Database, *, remind_at: _dt.datetime, channel_id: int = 1, voter_ids=(111, 222)
+) -> int:
+    cur = await db._conn.execute(
+        "INSERT INTO reminders (poll_id, channel_id, restaurant_text, visit_date, "
+        "remind_at, voter_ids, created_at, sent) VALUES (NULL, ?, 'Alpha', '2026-09-26', "
+        "?, ?, ?, 0)",
+        (channel_id, remind_at.isoformat(), json.dumps(list(voter_ids)), NOW.isoformat()),
+    )
+    await db._conn.commit()
+    return cur.lastrowid
 
 
 async def _seed_active_poll(db: Database, expires_at: _dt.datetime) -> FakeClient:
@@ -56,3 +70,43 @@ async def test_reconcile_schedules_future_poll(db: Database, config) -> None:
     assert await db.get_active_poll() is not None  # not closed yet
 
     scheduler.cancel()
+
+
+async def test_due_reminder_fires_and_pings_voters(db: Database, config) -> None:
+    channel = FakeChannel(FakeMessage(FakePoll([])))
+    client = FakeClient(channel)
+    rid = await _insert_reminder(db, remind_at=_dt.datetime.now(_dt.UTC) - _dt.timedelta(minutes=5))
+    scheduler = PollScheduler(client, db, config)
+
+    await scheduler.reconcile()
+
+    assert len(channel.sent) == 1
+    assert "<@111>" in channel.sent[0] and "<@222>" in channel.sent[0]
+    assert "Alpha" in channel.sent[0]
+    assert (await db.get_reminder(rid)).sent is True
+
+
+async def test_future_reminder_is_scheduled_not_sent(db: Database, config) -> None:
+    channel = FakeChannel(FakeMessage(FakePoll([])))
+    client = FakeClient(channel)
+    rid = await _insert_reminder(db, remind_at=_dt.datetime.now(_dt.UTC) + _dt.timedelta(hours=3))
+    scheduler = PollScheduler(client, db, config)
+
+    await scheduler.reconcile()
+
+    assert channel.sent == []
+    assert (await db.get_reminder(rid)).sent is False
+    assert rid in scheduler._reminder_tasks
+    await scheduler.shutdown()
+
+
+async def test_stale_reminder_marked_sent_without_posting(db: Database, config) -> None:
+    channel = FakeChannel(FakeMessage(FakePoll([])))
+    client = FakeClient(channel)
+    rid = await _insert_reminder(db, remind_at=_dt.datetime.now(_dt.UTC) - _dt.timedelta(days=2))
+    scheduler = PollScheduler(client, db, config)
+
+    await scheduler.reconcile()
+
+    assert channel.sent == []
+    assert (await db.get_reminder(rid)).sent is True

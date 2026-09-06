@@ -7,12 +7,13 @@ audited or rebuilt if ``EMA_LAMBDA`` changes (Q32).
 from __future__ import annotations
 
 import datetime as _dt
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 import aiosqlite
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -67,6 +68,18 @@ CREATE TABLE IF NOT EXISTS poll_options (
     weight_after    REAL    NOT NULL,
     PRIMARY KEY (poll_id, restaurant_id)
 );
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id              INTEGER PRIMARY KEY,
+    poll_id         INTEGER REFERENCES polls(id) ON DELETE SET NULL,
+    channel_id      INTEGER NOT NULL,
+    restaurant_text TEXT    NOT NULL,
+    visit_date      TEXT    NOT NULL,
+    remind_at       TEXT    NOT NULL,   -- ISO-8601 UTC
+    voter_ids       TEXT    NOT NULL,   -- JSON array of Discord user ids
+    created_at      TEXT    NOT NULL,
+    sent            INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -105,8 +118,43 @@ class ArchiveOption:
     weight_after: float
 
 
+@dataclass(frozen=True)
+class PendingReminder:
+    """A visit-day reminder to create alongside a completed poll."""
+
+    channel_id: int
+    restaurant_text: str
+    visit_date: str  # ISO date
+    remind_at: str  # ISO-8601 UTC
+    voter_ids: list[int]
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Reminder:
+    id: int
+    channel_id: int
+    restaurant_text: str
+    visit_date: str
+    remind_at: str
+    voter_ids: list[int]
+    sent: bool
+
+
 def normalise(text: str) -> str:
     return " ".join(text.split()).casefold()
+
+
+def _row_to_reminder(row: aiosqlite.Row) -> Reminder:
+    return Reminder(
+        id=row["id"],
+        channel_id=row["channel_id"],
+        restaurant_text=row["restaurant_text"],
+        visit_date=row["visit_date"],
+        remind_at=row["remind_at"],
+        voter_ids=list(json.loads(row["voter_ids"])),
+        sent=bool(row["sent"]),
+    )
 
 
 def _row_to_restaurant(row: aiosqlite.Row) -> Restaurant:
@@ -167,6 +215,7 @@ class Database:
                 "  ORDER BY p.closed_at DESC LIMIT 1"
                 ") WHERE active = 0 AND visit_date IS NULL"
             )
+        # v3 adds the `reminders` table, already created by executescript(_SCHEMA).
         await self._conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
     async def close(self) -> None:
@@ -304,9 +353,11 @@ class Database:
         options: Sequence[ArchiveOption],
         new_weights: dict[int, float],
         deactivate_restaurant_id: int | None,
+        reminder: PendingReminder | None = None,
     ) -> int:
-        """Write the archive rows, apply weight updates and winner deactivation, and clear
-        the active poll -- all in one transaction. Returns the new ``polls.id``.
+        """Write the archive rows, apply weight updates and winner deactivation, create the
+        visit-day reminder (if any), and clear the active poll -- all in one transaction.
+        Returns the new ``polls.id``.
         """
         try:
             cur = await self._conn.execute(
@@ -358,9 +409,44 @@ class Database:
                     (closed_at, dinner_date, deactivate_restaurant_id),
                 )
 
+            if reminder is not None:
+                await self._conn.execute(
+                    "INSERT INTO reminders "
+                    "(poll_id, channel_id, restaurant_text, visit_date, remind_at, "
+                    " voter_ids, created_at, sent) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                    (
+                        poll_id,
+                        reminder.channel_id,
+                        reminder.restaurant_text,
+                        reminder.visit_date,
+                        reminder.remind_at,
+                        json.dumps(reminder.voter_ids),
+                        reminder.created_at,
+                    ),
+                )
+
             await self._conn.execute("DELETE FROM active_poll WHERE id = 1")
         except Exception:
             await self._conn.rollback()
             raise
         await self._conn.commit()
         return poll_id
+
+    # -- reminders ----------------------------------------------------
+    async def pending_reminders(self) -> list[Reminder]:
+        async with self._conn.execute(
+            "SELECT * FROM reminders WHERE sent = 0 ORDER BY remind_at ASC"
+        ) as cur:
+            return [_row_to_reminder(r) for r in await cur.fetchall()]
+
+    async def get_reminder(self, reminder_id: int) -> Reminder | None:
+        async with self._conn.execute(
+            "SELECT * FROM reminders WHERE id = ?", (reminder_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_reminder(row) if row else None
+
+    async def mark_reminder_sent(self, reminder_id: int) -> None:
+        await self._conn.execute("UPDATE reminders SET sent = 1 WHERE id = ?", (reminder_id,))
+        await self._conn.commit()

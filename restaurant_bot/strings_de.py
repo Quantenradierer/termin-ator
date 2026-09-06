@@ -140,6 +140,12 @@ def poll_no_votes(date_label: str) -> str:
     )
 
 
+# --- visit-day reminder --------------------------------------------
+def visit_reminder(text: str, mentions: str) -> str:
+    base = f"🔔 Erinnerung: Heute geht's zu **{text}**!"
+    return f"{base}\n{mentions}" if mentions else base
+
+
 # --- generic ---------------------------------------------------------
 def generic_error() -> str:
     return "⚠️ Da ist etwas schiefgelaufen. Bitte versuch es noch einmal."

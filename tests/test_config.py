@@ -12,6 +12,7 @@ def _env(monkeypatch, **overrides: str | None) -> None:
         "SQLITE_PATH": "./data/x.db",
         "EMA_LAMBDA": "0.3",
         "WEIGHT_FLOOR": "0.05",
+        "REMINDER_HOUR": "9",
     }
     base.update(overrides)
     for key, value in base.items():
@@ -55,10 +56,25 @@ def test_bad_floor(monkeypatch) -> None:
         load_config(load_dotenv_file=False)
 
 
+@pytest.mark.parametrize("value", ["-1", "24", "9.5", "abc"])
+def test_bad_reminder_hour(monkeypatch, value: str) -> None:
+    _env(monkeypatch, REMINDER_HOUR=value)
+    with pytest.raises(ConfigError):
+        load_config(load_dotenv_file=False)
+
+
 def test_defaults_applied(monkeypatch) -> None:
-    _env(monkeypatch, TZ=None, SQLITE_PATH=None, EMA_LAMBDA=None, WEIGHT_FLOOR=None)
+    _env(
+        monkeypatch,
+        TZ=None,
+        SQLITE_PATH=None,
+        EMA_LAMBDA=None,
+        WEIGHT_FLOOR=None,
+        REMINDER_HOUR=None,
+    )
     cfg = load_config(load_dotenv_file=False)
     assert cfg.tz_name == "Europe/Berlin"
     assert cfg.sqlite_path == "./data/restaurants.db"
     assert cfg.ema_lambda == 0.3
     assert cfg.weight_floor == 0.05
+    assert cfg.reminder_hour == 9

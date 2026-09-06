@@ -9,11 +9,21 @@ from restaurant_bot.db import ActivePoll, Database
 NOW = _dt.datetime(2026, 9, 20, 12, 0, tzinfo=_dt.UTC)
 
 
+class _FakeUser:
+    def __init__(self, user_id: int) -> None:
+        self.id = user_id
+
+
 # --- fake discord objects --------------------------------------------
 class FakeAnswer:
-    def __init__(self, answer_id: int, vote_count: int) -> None:
+    def __init__(self, answer_id: int, vote_count: int, voter_ids: list[int] | None = None) -> None:
         self.id = answer_id
         self.vote_count = vote_count
+        self._voter_ids = voter_ids or []
+
+    async def voters(self, *_args, **_kwargs):
+        for uid in self._voter_ids:
+            yield _FakeUser(uid)
 
 
 class FakePoll:
@@ -41,7 +51,7 @@ class FakeChannel:
     async def fetch_message(self, _message_id: int) -> FakeMessage:
         return self._message
 
-    async def send(self, content: str) -> None:
+    async def send(self, content: str, **_kwargs) -> None:
         self.sent.append(content)
 
 
@@ -54,7 +64,12 @@ class FakeClient:
 
 
 # --- helpers -------------------------------------------------------
-async def _seed(db: Database, votes: list[int], weights: list[float] | None = None):
+async def _seed(
+    db: Database,
+    votes: list[int],
+    weights: list[float] | None = None,
+    voters: list[list[int]] | None = None,
+):
     names = ["Alpha", "Bravo", "Charlie"][: len(votes)]
     restaurants = [await db.add_restaurant(n, now=NOW) for n in names]
     if weights:
@@ -71,7 +86,8 @@ async def _seed(db: Database, votes: list[int], weights: list[float] | None = No
         expires_at=NOW.isoformat(),
     )
     await db.set_active_poll(poll, [(i + 1, r.id) for i, r in enumerate(restaurants)])
-    answers = [FakeAnswer(i + 1, v) for i, v in enumerate(votes)]
+    voters = voters or [[] for _ in votes]
+    answers = [FakeAnswer(i + 1, v, voters[i]) for i, v in enumerate(votes)]
     channel = FakeChannel(FakeMessage(FakePoll(answers)))
     return restaurants, channel, FakeClient(channel)
 
@@ -96,6 +112,28 @@ async def test_normal_path(db: Database, config) -> None:
 
     async with db._conn.execute("SELECT status FROM polls") as cur:
         assert (await cur.fetchone())["status"] == "completed"
+
+
+async def test_creates_visit_reminder_for_winning_voters(db: Database, config) -> None:
+    # Alpha wins with voters 111 & 222.
+    _, _channel, client = await _seed(db, [3, 1, 0], voters=[[111, 222], [999], []])
+    await close_poll(client, db, config, now=NOW, rng=random.Random(0))
+
+    pending = await db.pending_reminders()
+    assert len(pending) == 1
+    reminder = pending[0]
+    assert reminder.restaurant_text == "Alpha"
+    assert reminder.visit_date == "2026-09-26"
+    assert sorted(reminder.voter_ids) == [111, 222]
+    # 09:00 Europe/Berlin on 2026-09-26 is 07:00 UTC (CEST, UTC+2).
+    assert reminder.remind_at == "2026-09-26T07:00:00+00:00"
+    assert reminder.sent is False
+
+
+async def test_no_reminder_when_zero_votes(db: Database, config) -> None:
+    _, _channel, client = await _seed(db, [0, 0, 0])
+    await close_poll(client, db, config, now=NOW)
+    assert await db.pending_reminders() == []
 
 
 async def test_tie_broken_by_weight(db: Database, config) -> None:

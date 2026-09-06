@@ -10,6 +10,7 @@ from restaurant_bot.db import (
     AlreadyExists,
     ArchiveOption,
     Database,
+    PendingReminder,
 )
 
 NOW = _dt.datetime(2026, 9, 6, 12, 0, tzinfo=_dt.UTC)
@@ -51,8 +52,49 @@ async def test_migration_adds_visit_date(tmp_path) -> None:
         retired = await db.list_retired()
         assert len(retired) == 1
         assert retired[0].visit_date == "2026-09-12"  # backfilled from the poll
+        # v3 table is present after migration
+        async with db._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reminders'"
+        ) as cur:
+            assert await cur.fetchone() is not None
+        async with db._conn.execute("SELECT version FROM schema_version") as cur:
+            assert (await cur.fetchone())["version"] == 3
     finally:
         await db.close()
+
+
+async def test_reminder_roundtrip(db: Database) -> None:
+    r = await db.add_restaurant("Reminder Cafe", now=NOW)
+    await db.archive_poll(
+        message_id=7,
+        channel_id=88,
+        dinner_date="2026-10-05",
+        created_at=NOW.isoformat(),
+        closed_at=NOW.isoformat(),
+        status="completed",
+        winner_restaurant_id=r.id,
+        tie_broken=False,
+        tie_break_kind=None,
+        options=[ArchiveOption(r.id, r.text, 2, 1.0, 1.2)],
+        new_weights={r.id: 1.2},
+        deactivate_restaurant_id=r.id,
+        reminder=PendingReminder(
+            channel_id=88,
+            restaurant_text=r.text,
+            visit_date="2026-10-05",
+            remind_at="2026-10-05T07:00:00+00:00",
+            voter_ids=[5, 6, 7],
+            created_at=NOW.isoformat(),
+        ),
+    )
+    pending = await db.pending_reminders()
+    assert len(pending) == 1
+    assert pending[0].voter_ids == [5, 6, 7]
+    assert pending[0].channel_id == 88
+
+    await db.mark_reminder_sent(pending[0].id)
+    assert await db.pending_reminders() == []
+    assert (await db.get_reminder(pending[0].id)).sent is True
 
 
 async def test_add_and_duplicate(db: Database) -> None:

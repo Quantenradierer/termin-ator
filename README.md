@@ -30,6 +30,9 @@ All bot replies are in **German**; the command names are English.
 - **Winner** = most approvals. Tie → highest current weight wins; still tied → random.
   The winner is **retired** (dropped from future polls); bring it back later with
   `/reactivate-restaurant`, which resets its weight to `1.0`.
+- On the **visit date** at `REMINDER_HOUR` local time, the bot posts a reminder in the
+  poll's channel that @-mentions everyone who voted for the winner. Survives restarts; if
+  the bot was down for more than 12 h past the due time the reminder is skipped.
 - **Zero votes** → no winner, no retirement, no weight changes.
 
 ## Discord application setup
@@ -54,6 +57,7 @@ Copy `.env.example` to `.env` and fill it in:
 | `SQLITE_PATH` | no | `./data/restaurants.db` | Database file (in Docker: on the mounted volume) |
 | `EMA_LAMBDA` | no | `0.3` | Popularity smoothing factor, `0 < λ ≤ 1` |
 | `WEIGHT_FLOOR` | no | `0.05` | Minimum weight after a recalculation |
+| `REMINDER_HOUR` | no | `9` | Local hour (0–23) on the visit date to ping the winning voters |
 
 ## Run with Docker
 

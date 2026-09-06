@@ -25,6 +25,7 @@ dependencies, and the design questions (`Qn`) it traces back to.
 | T16 | [Test suite](T16-tests.md) | T07, T08, T09, T14 |
 | T17 | [README & Discord app setup docs](T17-readme-setup.md) | all |
 | T18 | [`/reactivate-restaurant` command](T18-cmd-reactivate-restaurant.md) | T04, T05, T06 |
+| T19 | [Visit-day reminder](T19-visit-day-reminder.md) | T04, T06, T14, T15 |
 
 ## Cross-cutting design decisions
 
